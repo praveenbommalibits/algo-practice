@@ -1,5 +1,6 @@
 package com.algopractice.practice;
 
+import java.util.Collections;
 import java.util.PriorityQueue;
 
 public class KthSmallestLargest {
@@ -13,6 +14,24 @@ public class KthSmallestLargest {
         int[] arr = new int[] { 10, 5, 4, 3, 48, 6, 2, 33, 53, 10 };
         System.out.println(findKthSmallestNo(arr, 4));
         System.out.println(findKthSmallestNoA1(arr, 4));
+        System.out.println(findKthLargestNoA1(arr,4));
+    }
+
+    private static Integer findKthLargestNoA1(int[] arr, int k) {
+
+        //default condition
+
+        PriorityQueue<Integer> pq = new PriorityQueue<>(Collections.reverseOrder());
+        for (int ele: arr) {
+            pq.offer(ele);
+        }
+
+        for (int i = 0; i < k; i++) {
+            pq.poll();
+        }
+        return pq.peek();
+
+
     }
 
     private static int findKthSmallestNoA1(int[] arr, int k) {
