@@ -15,7 +15,6 @@ public class ValidPalindrome {
             while(i < j && !Character.isLetterOrDigit(s.charAt(j)))
                 j--;
             if(i < j && Character.toLowerCase(s.charAt(i)) == Character.toLowerCase(s.charAt(j) )) {
-                System.out.println("valid");
             } else {
                 return isPalindrome(s,i+1, j ) || isPalindrome(s, i, j-1);
             }
@@ -33,7 +32,6 @@ public class ValidPalindrome {
             else
                 return false;
         }
-        System.out.println("asdsad");
         return true;
     }
 }
