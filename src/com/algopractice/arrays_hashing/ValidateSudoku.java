@@ -33,8 +33,9 @@ public class ValidateSudoku {
     private static boolean isValid(char[][] board, int r, int c) {
 
         for(int i =0; i<9; i++) {
-            //row chaking
+            //row checking
             if(r!=i && board[i][c]==board[r][c]) return false;
+            //column checking
             if(c!=i && board[r][i]==board[r][c]) return false;
         }
 
