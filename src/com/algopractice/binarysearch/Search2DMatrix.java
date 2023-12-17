@@ -17,7 +17,7 @@ public class Search2DMatrix {
 
         while(l <= r) {
             int mid = (l+r)/2;
-            if(matrix[mid][0][1] < target < matrix[mid][0][c-1] )
+            //if(matrix[mid][0][1] < target < matrix[mid][0][c-1] )
             if(matrix[mid][0] > target)
                 r = mid-1;
             else
