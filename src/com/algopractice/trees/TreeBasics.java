@@ -7,6 +7,18 @@ import java.util.Queue;
 
 public class TreeBasics {
 
+    public static com.algopractice.trees.TreeNode createTree(Integer[] arr, int index) {
+        if (index >= arr.length || arr[index] == null) {
+            return null;
+        }
+
+        com.algopractice.trees.TreeNode node = new com.algopractice.trees.TreeNode(arr[index]);
+        node.left = createTree(arr, 2 * index + 1); // Left child index: 2*i+1
+        node.right = createTree(arr, 2 * index + 2); // Right child index: 2*i+2
+
+        return node;
+    }
+
     class TreeNode {
         int val;
         TreeNode left;
@@ -96,6 +108,32 @@ public class TreeBasics {
 
         root.right.left = new TreeNode(6);
         root.right.right = new TreeNode(7);
+
+
+
+/*
+        TreeNode root1  = new TreeNode(1);
+        root1.left = new TreeNode(2);
+        root1.right = new TreeNode(7);
+
+        root1.left.left = new TreeNode(3);
+        root1.left.right = new TreeNode(null);
+        root1.right.left = new TreeNode(null);
+        root1.right.right = new TreeNode(8);
+
+        root1.left.left.left = new TreeNode(null);
+        root1.left.left.right = new TreeNode(4);
+
+        root1.right.right.left = new TreeNode(9);
+        root1.right.right.right = new TreeNode(null);
+
+        root1.left.left.right.left = new TreeNode(5);
+        root1.left.left.right.right = new TreeNode(6);
+
+        root1.right.right.left.left = new TreeNode(10);
+        root1.right.right.left.right = new TreeNode(11);*/
+
+
 
         return root;
 
