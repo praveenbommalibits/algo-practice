@@ -24,6 +24,8 @@ public class MeetingRooms2 {
     public int minMeetingRooms() {
         int ans = 1;
         List<MeetingRooms2.Interval> list = new ArrayList<>();
+
+
         list.add(new MeetingRooms2.Interval(0,8));
         list.add(new MeetingRooms2.Interval(8,10));
         list.add(new MeetingRooms2.Interval(12,15));
