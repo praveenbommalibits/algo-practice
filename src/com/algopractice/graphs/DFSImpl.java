@@ -16,6 +16,7 @@ public class DFSImpl {
     public DFSImpl(int v) {
         this.v = v;
         adjlist = new LinkedList[v];
+
         for (int i = 0; i < v; i++) {
             adjlist[i] = new LinkedList<>();
         }
