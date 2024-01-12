@@ -1,17 +1,18 @@
 package com.algopractice.graphs;
 
+import java.util.Iterator;
 import java.util.LinkedList;
 
 public class DFSImpl {
     int v ;
 
     private LinkedList<Integer> adjlist[];
-    boolean[] visited;
 
+
+    @SuppressWarnings("unchecked")
     public DFSImpl(int v) {
         this.v = v;
         adjlist = new LinkedList[v];
-        visited = new boolean[v];
         for (int i = 0; i < v; i++) {
             adjlist[i] = new LinkedList<>();
         }
@@ -22,33 +23,37 @@ public class DFSImpl {
         //adjlist[dest].add(src);
     }
 
-    public static void main(String[] args) {
-        DFSImpl graph = new DFSImpl(6);
-        int nodes = 5, edges=7;
-        graph.addEdge(0,1);
-        graph.addEdge(0,3);
-        graph.addEdge(1,3);
-        graph.addEdge(1,2);
-        graph.addEdge(3,4);
-        graph.addEdge(2,5);
-        System.out.println(graph.dfsHelper(0,5));
 
-    }
 
     private boolean dfsHelper(int src, int dest) {
-        visited[src] = true;
+        boolean[] visited = new boolean[this.v];
         dfs(src, visited);
         return visited[dest];
-
     }
 
     private void dfs(int src, boolean[] visited) {
         if(visited[src]) return;
-        for (int i = 0; i < adjlist[src].size(); i++) {
-            int cv = adjlist[src].get(i);
-            visited[cv] = true;
-            dfs(cv, visited);
+        visited[src] = true;
+
+        Iterator<Integer> i = adjlist[src].listIterator();
+        while(i.hasNext()){
+            int n = i.next();
+            if(!visited[n])
+                dfs(n, visited);
         }
+    }
+
+    public static void main(String[] args) {
+        DFSImpl graph = new DFSImpl(4);
+        graph.addEdge(0, 1);
+        graph.addEdge(0, 2);
+        graph.addEdge(1, 2);
+        graph.addEdge(2, 0);
+        graph.addEdge(2, 3);
+        graph.addEdge(3, 3);
+
+        System.out.println(graph.dfsHelper(2, 0));
+
     }
 
 
