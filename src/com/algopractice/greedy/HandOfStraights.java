@@ -7,6 +7,10 @@ import java.util.PriorityQueue;
 public class HandOfStraights {
     public static void main(String[] args) {
         HandOfStraights handOfStraights = new HandOfStraights();
+
+
+
+
         System.out.println(handOfStraights.isNStraightHand(new int[]{2,1}, 2));
     }
 
