@@ -18,6 +18,7 @@ public class HandOfStraights {
         int n = hand.length;
         if(n==1) return true;
 
+
         if(n % groupSize != 0) return false;
 
 
