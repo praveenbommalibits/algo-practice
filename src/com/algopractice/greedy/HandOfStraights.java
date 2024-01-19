@@ -17,11 +17,7 @@ public class HandOfStraights {
     public boolean isNStraightHand(int[] hand, int groupSize) {
         int n = hand.length;
         if(n==1) return true;
-
-
         if(n % groupSize != 0) return false;
-
-
 
         Map<Integer, Integer> countMap = new HashMap<>();
         PriorityQueue<Integer> minHeap = new PriorityQueue<>();
