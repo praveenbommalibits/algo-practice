@@ -9,6 +9,8 @@ public class CelebrityProblem {
             {0, 0, 0, 0},
             {0, 0, 1, 0}};
 
+
+
     private static int findCelebrity(int n) {
         Stack<Integer> st =  new Stack<Integer>();
         int c;
