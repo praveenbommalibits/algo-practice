@@ -14,6 +14,7 @@ public class CelebrityProblem {
     private static int findCelebrity(int n) {
         Stack<Integer> st =  new Stack<Integer>();
         int c;
+
         for (int i =0; i < n; i++ ) {
             st.push(i);
         }
