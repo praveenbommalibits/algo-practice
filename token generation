@@ -1,0 +1,175 @@
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class AccessTokenManager {
+
+    private static final String TOKEN_URL = "https://your-auth-server.com/token";
+    private static String accessToken = null;
+    private static long tokenExpiryTime = 0; // To track token expiry in epoch milliseconds
+    private static final ReentrantLock lock = new ReentrantLock(); // To ensure thread-safety
+
+    private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+    public static void main(String[] args) {
+        // Start the scheduler to refresh token every 55 minutes (or earlier if the token expires)
+        startTokenScheduler();
+
+        // Simulate an application request for the access token
+        System.out.println("Application requesting token: " + getAccessToken());
+
+        // Add shutdown hook for graceful termination
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            scheduler.shutdown();
+            System.out.println("Scheduler shut down.");
+        }));
+    }
+
+    // Scheduler to refresh the token periodically every 55 minutes
+    private static void startTokenScheduler() {
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                refreshAccessTokenIfNeeded();
+            } catch (Exception e) {
+                System.err.println("Error refreshing token: " + e.getMessage());
+            }
+        }, 0, 55, TimeUnit.MINUTES);
+    }
+
+    // Method to get the access token (checks if expired or null and refreshes if needed)
+    public static String getAccessToken() {
+        lock.lock(); // Ensure only one thread checks and updates the token
+        try {
+            if (accessToken == null || System.currentTimeMillis() >= tokenExpiryTime) {
+                System.out.println("Access token is null or expired, refreshing...");
+                refreshAccessTokenIfNeeded();
+            }
+            return accessToken;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // Method to refresh the access token if needed
+    private static void refreshAccessTokenIfNeeded() throws Exception {
+        if (accessToken == null || System.currentTimeMillis() >= tokenExpiryTime) {
+            // Token is expired or null, fetch a new token
+            System.out.println("Refreshing access token...");
+            String newToken = retrieveAccessToken();
+            long expiresIn = 3600; // For example, if token expires in 1 hour (3600 seconds), adjust as needed
+            updateToken(newToken, expiresIn);
+        }
+    }
+
+    // Method to update the access token and set the expiration time
+    private static void updateToken(String token, long expiresInSeconds) {
+        lock.lock(); // Ensure thread-safety when updating token and expiry time
+        try {
+            accessToken = token;
+            tokenExpiryTime = System.currentTimeMillis() + (expiresInSeconds * 1000) - (5 * 60 * 1000); // Subtract 5 min buffer
+            System.out.println("Token updated. Expiry time set to: " + tokenExpiryTime);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // Method to actually make the HTTP call and retrieve the access token
+    private static String retrieveAccessToken() throws Exception {
+        URL url = new URL(TOKEN_URL);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("POST");
+
+        // Add necessary headers, body, etc.
+        connection.setRequestProperty("Authorization", "Basic <encoded_credentials>");
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        connection.setDoOutput(true);
+
+        // Send request body if needed (e.g., client_id, client_secret)
+        try (OutputStream os = connection.getOutputStream()) {
+            String params = "client_id=your-client-id&client_secret=your-client-secret&grant_type=client_credentials";
+            os.write(params.getBytes());
+            os.flush();
+        }
+
+        int responseCode = connection.getResponseCode();
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+            // Read the response and return the token
+            BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            String inputLine;
+            StringBuilder response = new StringBuilder();
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
+            }
+            in.close();
+
+            // Extract the token from the response (assuming JSON, adjust as per actual API)
+            String token = parseTokenFromResponse(response.toString()); 
+            return token;
+        } else {
+            throw new RuntimeException("Failed to retrieve token. HTTP code: " + responseCode);
+        }
+    }
+
+    // Mock method to parse token from the response, adjust based on your response format
+    private static String parseTokenFromResponse(String response) {
+        // Assuming the response is JSON and contains a field "access_token"
+        // In a real scenario, use a JSON library (e.g., Jackson or Gson) to extract the token
+        return "newAccessToken";  // Replace this with actual parsing logic
+    }
+}
+
+
+
+
+For your application running on OpenShift and connecting to AWS API Gateway to retrieve and manage JWT tokens, the current approach is solid and well-suited for the task. However, given the nature of your environment and requirements, there are a few additional optimizations and considerations you might want to look into:
+
+Further Optimizations:
+Token Caching and Centralized Access:
+
+Instead of multiple services fetching the token, consider implementing a token caching mechanism where the token is stored centrally (in-memory cache like Redis or OpenShift In-Memory Cache) so all services can access it without each making independent token requests. This prevents redundant requests to AWS API Gateway.
+Handling Token Expiry and Failure:
+
+If the token retrieval fails (e.g., AWS API Gateway is down or there's a network issue), you might want to implement retry logic with exponential backoff to avoid immediate failures.
+Keep the last valid token as a fallback until a new one is successfully retrieved to avoid downtime.
+Token Encryption:
+
+Since you are storing tokens in a static variable, ensure that the token is encrypted in memory or stored securely (if persisting).
+Use environment-level encryption tools (such as AWS KMS or OpenShift’s secrets management) for sensitive information like credentials.
+Connection Pooling:
+
+Depending on how frequently different parts of your application access AWS API Gateway, you might want to implement connection pooling for the HTTP requests. This will optimize network resource usage, especially in environments like OpenShift.
+Leverage OpenShift Configurations:
+
+Use OpenShift ConfigMaps or Secrets to externalize configurations, such as API Gateway URLs, client credentials, etc. This helps in managing environment changes without code modifications.
+Load Monitoring and Scaling:
+
+Ensure that your token retrieval logic doesn’t become a bottleneck under heavy load. You can monitor this using OpenShift’s monitoring tools (Prometheus, Grafana) and automatically scale if the token service starts consuming more resources than expected.
+Optional Enhancements:
+Role-Based Token Validation:
+
+If your JWT token supports user roles, you can validate the roles on each token usage, ensuring the right users have access to the right resources.
+Token Refresh Endpoint:
+
+Instead of automatically refreshing tokens every 55 minutes, consider exposing an endpoint to trigger token refresh manually if needed by administrators.
+Audit Logging:
+
+Log token requests and usage for audit purposes, especially if multiple users are using the same token. This helps in tracking anomalies and ensuring accountability.
+Security Recommendations:
+Ensure Secure Connections:
+Always use HTTPS when communicating with AWS API Gateway to fetch the JWT tokens. Consider setting up SSL certificates and configuring secure transport layers in OpenShift.
+OpenShift Pod-Level Security:
+Ensure the OpenShift pods running your application have limited access to external resources, and configure role-based access control (RBAC) to restrict who can access or trigger the token refresh mechanisms.
+Conclusion:
+Your current approach is well-structured, but these optimizations would improve scalability, security, and reliability, especially in an OpenShift on-premise environment.
+
+
+
+
+
+
+
+
+
+
