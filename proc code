@@ -1,0 +1,183 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.*;
+import java.util.*;
+import oracle.jdbc.OracleTypes;
+
+public class StoredProcedureTaskWorker {
+
+    public Map<String, Object> executeProcedure(
+            Map<String, Object> inputPayload,
+            Map<String, String> inputTypes,
+            Map<String, String> outputTypes,
+            String packageName,
+            String procedureName
+    ) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        try (Connection conn = getConnection()) {
+            int totalParams = inputTypes.size() + outputTypes.size();
+            String sql = buildCallSQL(packageName, procedureName, totalParams);
+
+            try (CallableStatement stmt = conn.prepareCall(sql)) {
+                int index = 1;
+
+                // Set input parameters
+                for (Map.Entry<String, String> entry : inputTypes.entrySet()) {
+                    String paramName = entry.getKey();
+                    String type = entry.getValue();
+                    Object value = inputPayload.get(paramName);
+                    setInputParam(stmt, index++, type, value);
+                }
+
+                // Register output parameters
+                Map<String, Integer> outputParamIndexMap = new LinkedHashMap<>();
+                for (Map.Entry<String, String> entry : outputTypes.entrySet()) {
+                    stmt.registerOutParameter(index, getSqlType(entry.getValue()));
+                    outputParamIndexMap.put(entry.getKey(), index++);
+                }
+
+                stmt.execute();
+
+                // Collect output
+                for (Map.Entry<String, Integer> entry : outputParamIndexMap.entrySet()) {
+                    String param = entry.getKey();
+                    int outIndex = entry.getValue();
+                    String outType = outputTypes.get(param);
+                    Object value = getOutputValue(stmt, outIndex, outType);
+                    result.put(param, value);
+                }
+
+                result.put("status", "SUCCESS");
+
+            } catch (SQLException e) {
+                handleError(e, result);
+            }
+
+        } catch (Exception e) {
+            handleError(e, result);
+        }
+
+        return result;
+    }
+
+    private String buildCallSQL(String packageName, String procedureName, int paramCount) {
+        StringJoiner sj = new StringJoiner(",", "(", ")");
+        for (int i = 0; i < paramCount; i++) {
+            sj.add("?");
+        }
+        return "{call " + packageName + "." + procedureName + sj.toString() + "}";
+    }
+
+    private void setInputParam(CallableStatement stmt, int index, String type, Object value) throws Exception {
+        switch (type.toUpperCase()) {
+            case "INTEGER":
+                stmt.setInt(index, Integer.parseInt(value.toString()));
+                break;
+            case "STRING":
+                stmt.setString(index, value != null ? value.toString() : null);
+                break;
+            case "JSON":
+                ObjectMapper mapper = new ObjectMapper();
+                stmt.setString(index, mapper.writeValueAsString(value));
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported input type: " + type);
+        }
+    }
+
+    private int getSqlType(String type) {
+        return switch (type.toUpperCase()) {
+            case "INTEGER" -> Types.INTEGER;
+            case "STRING" -> Types.VARCHAR;
+            case "CLOB" -> Types.CLOB;
+            case "CURSOR" -> OracleTypes.CURSOR;
+            default -> throw new IllegalArgumentException("Unsupported output type: " + type);
+        };
+    }
+
+    private Object getOutputValue(CallableStatement stmt, int index, String type) throws Exception {
+        return switch (type.toUpperCase()) {
+            case "INTEGER" -> stmt.getInt(index);
+            case "STRING" -> stmt.getString(index);
+            case "CLOB" -> {
+                Clob clob = stmt.getClob(index);
+                yield clob != null ? clob.getSubString(1, (int) clob.length()) : null;
+            }
+            case "CURSOR" -> {
+                ResultSet rs = (ResultSet) stmt.getObject(index);
+                List<Map<String, Object>> list = new ArrayList<>();
+                ResultSetMetaData rsMeta = rs.getMetaData();
+                while (rs.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    for (int i = 1; i <= rsMeta.getColumnCount(); i++) {
+                        row.put(rsMeta.getColumnName(i), rs.getObject(i));
+                    }
+                    list.add(row);
+                }
+                rs.close();
+                yield list;
+            }
+            default -> null;
+        };
+    }
+
+    private void handleError(Exception e, Map<String, Object> result) {
+        result.put("status", "ERROR");
+        result.put("errorCode", "PROC_EXEC_ERR");
+        result.put("errorDesc", e.getMessage());
+        e.printStackTrace();
+    }
+
+    private Connection getConnection() throws SQLException {
+        return DriverManager.getConnection("jdbc:oracle:thin:@host:port:SID", "username", "password");
+    }
+}
+
+
+
+
+public class ExampleCall {
+    public static void main(String[] args) {
+        StoredProcedureTaskWorker worker = new StoredProcedureTaskWorker();
+
+        Map<String, Object> inputData = Map.of(
+                "userId", 101,
+                "userName", "John Doe",
+                "metadata", Map.of("role", "admin")
+        );
+
+        Map<String, String> inputTypes = Map.of(
+                "userId", "Integer",
+                "userName", "String",
+                "metadata", "JSON"
+        );
+
+        Map<String, String> outputTypes = Map.of(
+                "statusCode", "Integer",
+                "statusMessage", "String",
+                "resultSet", "CURSOR"
+        );
+
+        Map<String, Object> result = worker.executeProcedure(
+                inputData,
+                inputTypes,
+                outputTypes,
+                "MY_PKG",
+                "MY_PROC"
+        );
+
+        System.out.println(result);
+    }
+}
+
+
+{
+  "statusCode": 0,
+  "statusMessage": "Success",
+  "resultSet": [
+    {"ID": 1, "NAME": "Alice"},
+    {"ID": 2, "NAME": "Bob"}
+  ],
+  "status": "SUCCESS"
+}
+
