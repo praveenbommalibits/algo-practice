@@ -1,0 +1,166 @@
+procedures:
+  getCustomerInfo:
+    package: PKG_CUSTOMER
+    name: GET_INFO
+    transactional: true
+    suppressErrorCode: false
+
+    input:
+      customer_id: Integer
+
+    output:
+      customer_name: String
+      details_json: Clob
+      records_cursor: Cursor
+      error_code: Integer
+      error_desc: String
+
+
+
+
+
+
+public class ProcedureDefinition {
+    private String name;
+    private String packageName;
+    private boolean transactional;
+    private boolean suppressErrorCode;
+
+    private Map<String, String> input;   // paramName -> type
+    private Map<String, String> output;  // paramName -> type
+
+    // Getters and setters
+}
+
+
+
+@Component
+@ConfigurationProperties(prefix = "procedures")
+@PropertySource(value = "classpath:stored-procedures.yml", factory = YamlPropertySourceFactory.class)
+public class ProcedureConfig {
+
+    private Map<String, ProcedureDefinition> procedures = new HashMap<>();
+
+    public Map<String, ProcedureDefinition> getProcedures() {
+        return procedures;
+    }
+
+    public void setProcedures(Map<String, ProcedureDefinition> procedures) {
+        this.procedures = procedures;
+    }
+
+    public ProcedureDefinition get(String key) {
+        return procedures.get(key);
+    }
+}
+
+
+
+public class YamlPropertySourceFactory implements PropertySourceFactory {
+
+    @Override
+    public PropertySource<?> createPropertySource(String name, EncodedResource resource) throws IOException {
+        YamlPropertiesFactoryBean factory = new YamlPropertiesFactoryBean();
+        factory.setResources(resource.getResource());
+        Properties props = factory.getObject();
+        return new PropertiesPropertySource(resource.getResource().getFilename(), props);
+    }
+}
+
+
+
+
+Add this to your application.yml if needed:
+
+yaml
+Copy
+Edit
+spring:
+  config:
+    import: classpath:stored-procedures.yml
+Or load it manually via Spring Boot’s @PropertySource.
+
+
+usage -- 
+ProcedureDefinition def = procedureConfig.get("getCustomerInfo");
+
+
+orkes-sp-worker/
+├── src/main/java/com/yourorg/orkes/
+│   ├── Application.java
+│   ├── config/
+│   │   ├── WorkerConfig.java
+│   │   ├── YamlPropertySourceFactory.java
+│   ├── core/
+│   │   ├── AbstractTaskWorker.java
+│   │   ├── TaskResultFactory.java
+│   ├── db/
+│   │   ├── StoredProcedureService.java
+│   ├── configmodel/
+│   │   ├── ProcedureConfig.java
+│   │   └── ProcedureDefinition.java
+│   ├── audit/
+│   │   └── AuditLogger.java
+│   ├── exception/
+│   │   ├── FrameworkException.java
+│   │   └── ValidationException.java
+│   ├── workers/
+│   │   └── StoredProcedureTaskWorker.java
+├── src/main/resources/
+│   └── stored-procedures.yml
+└── pom.xml
+
+
+
+
+procedures:
+  getCustomerInfo:
+    package: PKG_CUSTOMER
+    name: GET_INFO
+    transactional: true
+    suppressErrorCode: false
+    input:
+      customer_id: Integer
+    output:
+      customer_name: String
+      details_json: Clob
+      records_cursor: Cursor
+      error_code: Integer
+      error_desc: String
+
+
+
+@Entity @Table("procedure_config")
+public class ProcedureConfigEntity {
+    @Id private String key;
+    @Column private String definitionJson; // full ProcedureDefinition serialized
+}
+
+@Repository
+public interface ProcedureConfigRepository extends JpaRepository<ProcedureConfigEntity, String> { }
+
+
+
+
+public class ProcedureDefinition {
+    private String name;
+    private String packageName;
+    private boolean transactional;
+    private boolean suppressErrorCode;
+    private Map<String, String> input;
+    private Map<String, String> output;
+    // getters/setters
+}
+
+
+
+
+@Component
+@ConfigurationProperties(prefix = "procedures")
+public class ProcedureConfig {
+    private Map<String, ProcedureDefinition> procedures = new HashMap<>();
+    public Map<String, ProcedureDefinition> getProcedures() { return procedures; }
+    public ProcedureDefinition get(String key) { return procedures.get(key); }
+    public void setProcedures(Map<String, ProcedureDefinition> procedures) { this.procedures = procedures; }
+}
+
