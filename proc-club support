@@ -1,0 +1,131 @@
+package com.example.service;
+
+import com.example.config.ProcedureConfig;
+import com.example.config.ProcedureDefinition;
+import jakarta.persistence.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.io.Reader;
+import java.sql.Clob;
+import java.sql.ResultSet;
+import java.util.*;
+import java.util.Scanner;
+
+@Service
+public class StoredProcedureService {
+
+    private static final Logger log = LoggerFactory.getLogger(StoredProcedureService.class);
+
+    private final EntityManager entityManager;
+    private final ProcedureConfig procedureConfig;
+
+    public StoredProcedureService(EntityManager entityManager, ProcedureConfig procedureConfig) {
+        this.entityManager = entityManager;
+        this.procedureConfig = procedureConfig;
+    }
+
+    public Map<String, Object> callProcedure(String key, Map<String, Object> inputParams) {
+        ProcedureDefinition def = procedureConfig.get(key);
+        if (def == null) throw new IllegalArgumentException("Procedure not found: " + key);
+
+        StoredProcedureQuery query = entityManager
+                .createStoredProcedureQuery(def.getPackageName() + "." + def.getName());
+
+        def.getInput().forEach((name, type) -> {
+            query.registerStoredProcedureParameter(name, resolveClass(type), ParameterMode.IN);
+            query.setParameter(name, inputParams.get(name));
+        });
+
+        def.getOutput().forEach((name, type) -> {
+            query.registerStoredProcedureParameter(name, resolveClass(type), ParameterMode.OUT);
+        });
+
+        query.execute();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        def.getOutput().forEach((name, type) -> {
+            try {
+                Object value = query.getOutputParameterValue(name);
+                if ("clob".equalsIgnoreCase(type)) {
+                    if (value instanceof Clob clob) {
+                        value = clobToString(clob);
+                    } else {
+                        throw new RuntimeException("Expected Clob for " + name + " but got: " + (value != null ? value.getClass() : "null"));
+                    }
+                } else if ("cursor".equalsIgnoreCase(type)) {
+                    value = resultSetToList((ResultSet) value);
+                }
+                result.put(name, value);
+            } catch (Exception e) {
+                log.error("Error retrieving output parameter {}: {}", name, e.getMessage(), e);
+                result.put(name, "ERROR: " + e.getMessage());
+            }
+        });
+
+        return wrapResponse(result);
+    }
+
+    private Class<?> resolveClass(String type) {
+        return switch (type.toLowerCase()) {
+            case "string" -> String.class;
+            case "integer" -> Integer.class;
+            case "long" -> Long.class;
+            case "double" -> Double.class;
+            case "boolean" -> Boolean.class;
+            case "date" -> java.sql.Date.class;
+            case "clob" -> Clob.class;
+            case "cursor" -> ResultSet.class;
+            default -> throw new IllegalArgumentException("Unsupported type: " + type);
+        };
+    }
+
+    private String clobToString(Clob clob) {
+        if (clob == null) return null;
+        try (Reader reader = clob.getCharacterStream();
+             Scanner scanner = new Scanner(reader).useDelimiter("\\A")) {
+            return scanner.hasNext() ? scanner.next() : "";
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert CLOB to string", e);
+        }
+    }
+
+    private List<Map<String, Object>> resultSetToList(ResultSet rs) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try {
+            var meta = rs.getMetaData();
+            int colCount = meta.getColumnCount();
+            while (rs.next()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                for (int i = 1; i <= colCount; i++) {
+                    row.put(meta.getColumnLabel(i), rs.getObject(i));
+                }
+                rows.add(row);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read CURSOR", e);
+        }
+        return rows;
+    }
+
+    private Map<String, Object> wrapResponse(Map<String, Object> result) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "success");
+
+        if (result.containsKey("error_code")) {
+            Integer errCode = (Integer) result.get("error_code");
+            String errDesc = (String) result.getOrDefault("error_desc", "Unknown Error");
+
+            response.put("errorCode", errCode);
+            response.put("errorDesc", errDesc);
+
+            if (errCode != null && errCode != 0) {
+                response.put("status", "failure");
+            }
+        }
+
+        response.put("data", result);
+        return response;
+    }
+}
