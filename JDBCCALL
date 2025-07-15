@@ -1,0 +1,122 @@
+package com.example.service;
+
+import com.example.config.ProcedureConfig;
+import com.example.config.ProcedureDefinition;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.simple.SimpleJdbcCall;
+import org.springframework.stereotype.Service;
+
+import javax.annotation.PostConstruct;
+import javax.sql.DataSource;
+import java.sql.Clob;
+import java.sql.ResultSet;
+import java.util.*;
+
+@Service
+public class StoredProcedureService {
+
+    private final DataSource dataSource;
+    private final ProcedureConfig procedureConfig;
+    private final Map<String, SimpleJdbcCall> procedureCallCache = new HashMap<>();
+
+    public StoredProcedureService(DataSource dataSource, ProcedureConfig procedureConfig) {
+        this.dataSource = dataSource;
+        this.procedureConfig = procedureConfig;
+    }
+
+    @PostConstruct
+    public void init() {
+        procedureConfig.getProcedures().forEach((key, def) -> {
+            SimpleJdbcCall jdbcCall = new SimpleJdbcCall(dataSource)
+                    .withCatalogName(def.getPackageName())
+                    .withProcedureName(def.getName());
+            procedureCallCache.put(key, jdbcCall);
+        });
+    }
+
+    public Map<String, Object> callProcedure(String key, Map<String, Object> inputParams) {
+        ProcedureDefinition def = procedureConfig.get(key);
+        if (def == null) throw new IllegalArgumentException("Procedure not found: " + key);
+
+        SimpleJdbcCall jdbcCall = procedureCallCache.get(key);
+        MapSqlParameterSource inParams = new MapSqlParameterSource();
+        def.getInput().forEach((name, type) -> inParams.addValue(name, convertValue(inputParams.get(name), type)));
+
+        Map<String, Object> out = jdbcCall.execute(inParams);
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        for (Map.Entry<String, String> entry : def.getOutput().entrySet()) {
+            String keyName = entry.getKey();
+            String type = entry.getValue();
+            Object val = out.get(keyName);
+
+            if (val instanceof Clob clob) {
+                val = clobToString(clob);
+            } else if (val instanceof ResultSet rs) {
+                val = resultSetToList(rs);
+            }
+            result.put(keyName, val);
+        }
+
+        return wrapResponse(result);
+    }
+
+    private Object convertValue(Object val, String type) {
+        if (val == null) return null;
+        return switch (type.toLowerCase()) {
+            case "integer" -> Integer.valueOf(val.toString());
+            case "long" -> Long.valueOf(val.toString());
+            case "double" -> Double.valueOf(val.toString());
+            case "boolean" -> Boolean.valueOf(val.toString());
+            default -> val;
+        };
+    }
+
+    private String clobToString(Clob clob) {
+        if (clob == null) return null;
+        try (Scanner scanner = new Scanner(clob.getCharacterStream()).useDelimiter("\\A")) {
+            return scanner.hasNext() ? scanner.next() : "";
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read Clob", e);
+        }
+    }
+
+    private List<Map<String, Object>> resultSetToList(ResultSet rs) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        try {
+            var meta = rs.getMetaData();
+            while (rs.next()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                for (int i = 1; i <= meta.getColumnCount(); i++) {
+                    row.put(meta.getColumnLabel(i), rs.getObject(i));
+                }
+                list.add(row);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read ResultSet", e);
+        }
+        return list;
+    }
+
+    private Map<String, Object> wrapResponse(Map<String, Object> result) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "success");
+
+        if (result.containsKey("o_error_code")) {
+            Integer errCode = (Integer) result.get("o_error_code");
+            String errDesc = (String) result.getOrDefault("o_error_desc", "Unknown Error");
+
+            response.put("errorCode", errCode);
+            response.put("errorDesc", errDesc);
+
+            if (errCode != null && errCode != 0) {
+                response.put("status", "failure");
+            }
+        }
+
+        response.put("data", result);
+        return response;
+    }
+}
