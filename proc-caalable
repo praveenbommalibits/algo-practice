@@ -1,0 +1,138 @@
+package com.example.service;
+
+import com.example.config.ProcedureConfig;
+import com.example.config.ProcedureDefinition;
+import oracle.jdbc.OracleTypes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import javax.sql.DataSource;
+import java.io.Reader;
+import java.sql.*;
+import java.util.*;
+import java.util.Scanner;
+
+@Service
+public class StoredProcedureService {
+
+    private static final Logger log = LoggerFactory.getLogger(StoredProcedureService.class);
+
+    private final DataSource dataSource;
+    private final ProcedureConfig procedureConfig;
+
+    public StoredProcedureService(DataSource dataSource, ProcedureConfig procedureConfig) {
+        this.dataSource = dataSource;
+        this.procedureConfig = procedureConfig;
+    }
+
+    public Map<String, Object> callProcedure(String key, Map<String, Object> inputParams) {
+        ProcedureDefinition def = procedureConfig.get(key);
+        if (def == null) throw new IllegalArgumentException("Procedure not found: " + key);
+
+        String call = buildCallString(def);
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        try (Connection conn = dataSource.getConnection();
+             CallableStatement stmt = conn.prepareCall(call)) {
+
+            int index = 1;
+            for (Map.Entry<String, String> entry : def.getInput().entrySet()) {
+                stmt.setObject(index++, inputParams.get(entry.getKey()));
+            }
+
+            List<String> outKeys = new ArrayList<>();
+            for (Map.Entry<String, String> entry : def.getOutput().entrySet()) {
+                stmt.registerOutParameter(index, mapSqlType(entry.getValue()));
+                outKeys.add(entry.getKey());
+                index++;
+            }
+
+            stmt.execute();
+
+            index = def.getInput().size() + 1;
+            for (String outKey : outKeys) {
+                String type = def.getOutput().get(outKey);
+                Object value = switch (type.toLowerCase()) {
+                    case "clob" -> clobToString(stmt.getClob(index));
+                    case "cursor" -> resultSetToList((ResultSet) stmt.getObject(index));
+                    default -> stmt.getObject(index);
+                };
+                result.put(outKey, value);
+                index++;
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException("Error executing stored procedure: " + e.getMessage(), e);
+        }
+
+        return wrapResponse(result);
+    }
+
+    private String buildCallString(ProcedureDefinition def) {
+        int totalParams = def.getInput().size() + def.getOutput().size();
+        String placeholders = String.join(",", Collections.nCopies(totalParams, "?"));
+        return String.format("{call %s.%s(%s)}", def.getPackageName(), def.getName(), placeholders);
+    }
+
+    private int mapSqlType(String type) {
+        return switch (type.toLowerCase()) {
+            case "string" -> Types.VARCHAR;
+            case "integer" -> Types.INTEGER;
+            case "long" -> Types.BIGINT;
+            case "double" -> Types.DOUBLE;
+            case "boolean" -> Types.BOOLEAN;
+            case "date" -> Types.DATE;
+            case "clob" -> Types.CLOB;
+            case "cursor" -> OracleTypes.CURSOR;
+            default -> throw new IllegalArgumentException("Unsupported type: " + type);
+        };
+    }
+
+    private String clobToString(Clob clob) {
+        if (clob == null) return null;
+        try (Reader reader = clob.getCharacterStream();
+             Scanner scanner = new Scanner(reader).useDelimiter("\\A")) {
+            return scanner.hasNext() ? scanner.next() : "";
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read Clob", e);
+        }
+    }
+
+    private List<Map<String, Object>> resultSetToList(ResultSet rs) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try {
+            var meta = rs.getMetaData();
+            while (rs.next()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                for (int i = 1; i <= meta.getColumnCount(); i++) {
+                    row.put(meta.getColumnLabel(i), rs.getObject(i));
+                }
+                rows.add(row);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read cursor", e);
+        }
+        return rows;
+    }
+
+    private Map<String, Object> wrapResponse(Map<String, Object> result) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "success");
+
+        if (result.containsKey("o_error_code")) {
+            Integer errCode = (Integer) result.get("o_error_code");
+            String errDesc = (String) result.getOrDefault("o_error_desc", "Unknown Error");
+
+            response.put("errorCode", errCode);
+            response.put("errorDesc", errDesc);
+
+            if (errCode != null && errCode != 0) {
+                response.put("status", "failure");
+            }
+        }
+
+        response.put("data", result);
+        return response;
+    }
+}
