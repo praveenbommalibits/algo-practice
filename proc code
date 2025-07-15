@@ -1,3 +1,33 @@
+
+orkes-sp-worker/
+├── src/main/java/com/yourorg/orkes/
+│   ├── Application.java
+│   ├── config/
+│   │   ├── WorkerConfig.java
+│   │   ├── YamlPropertySourceFactory.java
+│   ├── core/
+│   │   ├── AbstractTaskWorker.java
+│   │   ├── TaskResultFactory.java
+│   ├── db/
+│   │   ├── StoredProcedureService.java
+│   ├── configmodel/
+│   │   ├── ProcedureConfig.java
+│   │   └── ProcedureDefinition.java
+│   ├── audit/
+│   │   └── AuditLogger.java
+│   ├── exception/
+│   │   ├── FrameworkException.java
+│   │   └── ValidationException.java
+│   ├── workers/
+│   │   └── StoredProcedureTaskWorker.java
+├── src/main/resources/
+│   └── stored-procedures.yml
+└── pom.xml
+
+
+
+
+
 // File: com.example.service.StoredProcedureService.java
 package com.example.service;
 
