@@ -1,0 +1,193 @@
+package com.example.kafka.config;
+
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class KafkaConfigBuilder {
+
+    private final KafkaProperties properties;
+
+    public KafkaConfigBuilder(KafkaProperties properties) {
+        this.properties = properties;
+    }
+
+    public Map<String, Object> buildCommonConfigs() {
+        Map<String, Object> config = new HashMap<>();
+        config.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, properties.getBootstrapServers());
+        config.put(CommonClientConfigs.CLIENT_ID_CONFIG, properties.getClientId());
+        return config;
+    }
+
+    public Map<String, Object> buildProducerConfigs() {
+        Map<String, Object> config = buildCommonConfigs();
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, properties.getKeySerializer());
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, properties.getValueSerializer());
+        config.put(ProducerConfig.ACKS_CONFIG, properties.getAcks());
+        config.put(ProducerConfig.RETRIES_CONFIG, properties.getRetries());
+        config.put(ProducerConfig.BATCH_SIZE_CONFIG, properties.getBatchSize());
+        config.put(ProducerConfig.LINGER_MS_CONFIG, properties.getLingerMs());
+        config.put(ProducerConfig.BUFFER_MEMORY_CONFIG, properties.getBufferMemory());
+        return config;
+    }
+
+    public Map<String, Object> buildConsumerConfigs() {
+        Map<String, Object> config = buildCommonConfigs();
+        config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, properties.getKeyDeserializer());
+        config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, properties.getValueDeserializer());
+        config.put(ConsumerConfig.GROUP_ID_CONFIG, properties.getGroupId());
+        config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, properties.getAutoOffsetReset());
+        return config;
+    }
+}
+
+
+
+package com.example.kafka.config;
+
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
+
+@Configuration
+public class KafkaProducerConfig {
+
+    private final KafkaProperties properties;
+
+    public KafkaProducerConfig(KafkaProperties properties) {
+        this.properties = properties;
+    }
+
+    @Bean
+    public ProducerFactory<String, Object> producerFactory() {
+        KafkaConfigBuilder builder = new KafkaConfigBuilder(properties);
+        return new DefaultKafkaProducerFactory<>(builder.buildProducerConfigs());
+    }
+
+    @Bean
+    public KafkaTemplate<String, Object> kafkaTemplate() {
+        return new KafkaTemplate<>(producerFactory());
+    }
+}
+
+
+package com.example.kafka.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.annotation.EnableKafka;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+
+@EnableKafka
+@Configuration
+public class KafkaConsumerConfig {
+
+    private final KafkaProperties properties;
+
+    public KafkaConsumerConfig(KafkaProperties properties) {
+        this.properties = properties;
+    }
+
+    @Bean
+    public ConsumerFactory<String, Object> consumerFactory() {
+        KafkaConfigBuilder builder = new KafkaConfigBuilder(properties);
+        return new DefaultKafkaConsumerFactory<>(builder.buildConsumerConfigs());
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory());
+        factory.setConcurrency(properties.getConcurrency());
+        factory.setCommonErrorHandler(new KafkaErrorHandler());
+        return factory;
+    }
+}
+
+
+package com.example.kafka.config;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.TopicBuilder;
+
+@Configuration
+public class KafkaTopicConfig {
+
+    @Bean
+    public NewTopic exampleTopic() {
+        return TopicBuilder.name("example-topic").partitions(3).replicas(1).build();
+    }
+}
+
+
+package com.example.kafka.producer;
+
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+
+@Component
+public class KafkaMessageProducer {
+
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+
+    public KafkaMessageProducer(KafkaTemplate<String, Object> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public void sendMessage(String topic, Object message) {
+        kafkaTemplate.send(topic, message);
+    }
+}
+
+package com.example.kafka.listener;
+
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class BaseKafkaListener {
+
+    @KafkaListener(topics = "example-topic", groupId = "${kafka.group-id}")
+    public void consumeMessage(String message) {
+        System.out.println("Received message: " + message);
+    }
+}
+
+package com.example.kafka.exception;
+
+import org.springframework.kafka.listener.CommonErrorHandler;
+import org.springframework.kafka.listener.MessageListenerContainer;
+
+public class KafkaErrorHandler implements CommonErrorHandler {
+
+    @Override
+    public void handleOtherException(Exception e, MessageListenerContainer container, boolean batchListener) {
+        System.err.println("Kafka Error: " + e.getMessage());
+    }
+}
+
+package com.example.kafka;
+
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import com.example.kafka.config.KafkaProperties;
+
+@AutoConfiguration
+@EnableConfigurationProperties(KafkaProperties.class)
+public class KafkaBaseAutoConfiguration {
+}
+
+
+S
